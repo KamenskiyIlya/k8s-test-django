@@ -75,3 +75,74 @@ $ docker compose build web
 `ALLOWED_HOSTS` -- настройка Django со списком разрешённых адресов. Если запрос прилетит на другой адрес, то сайт ответит ошибкой 400. Можно перечислить несколько адресов через запятую, например `127.0.0.1,192.168.0.1,site.test`. [Документация Django](https://docs.djangoproject.com/en/3.2/ref/settings/#allowed-hosts).
 
 `DATABASE_URL` -- адрес для подключения к базе данных PostgreSQL. Другие СУБД сайт не поддерживает. [Формат записи](https://github.com/jacobian/dj-database-url#url-schema).
+
+## Развёртывание в Kubernetes
+
+Манифесты, с помощью которых будем запускать проект, лежат в каталоге `kubernetes/` (Deployment + Service). Секретные настройки (`SECRET_KEY`, `DATABASE_URL`) не лежат в манифестах - они вынесены в отдельный объект Kubernetes `Secret`, который хранится только в кластере и не попадает в git вместе с кодом. Это защищает чувствительные данные от случайной утечки через репозиторий.
+
+Для установки кластера и работы с манифестами понадобятся:
+- **Docker** и **Docker Compose** - для локального запуска базы данных PostgreSQL и сборки образа Django
+- **kubectl** — клиент для управления кластером
+- **minikube** — локальный кластер Kubernetes (в примерах ниже драйвер `kvm2`, для своего окружения подберите свой: `minikube start --driver=<ваш_драйвер>` и т.д.).
+
+### Запустить БД PostgreSQL в Docker
+
+Deployment обращается к базе PostgreSQL. Её необходимо поднять из корня проекта:
+
+```shell
+docker compose up -d db
+```
+После перезагрузки локальной машины или сервера, контейнер может остановиться, чтобы его включить используйте следующую команду:
+
+```shell
+docker start k8s-test-django-db-1
+```
+
+### Собрать и загрузить образ в кластер
+
+Выполните следующие команды в терминале:
+
+```shell
+docker build -t django_app backend_main_django # собираем образ Docker
+minikube image load django_app # загружаем образ в кластер
+```
+
+### Создание Secret в кластере
+
+Создайте `secret.yml` и запишите туда необходимые настройки и добавьте переменные окружения(`SECRET_KEY`, `DATABASE_URL`, `DEBUG`, `ALLOWED_HOSTS`):
+
+```yml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: django-secret
+type: Opaque
+stringData:
+  SECRET_KEY: <секретный_ключ>
+  DATABASE_URL: postgres://test_k8s:<пароль>@host.minikube.internal:5432/test_k8s
+  DEBUG: "False"
+  ALLOWED_HOSTS: 127.0.0.1,localhost,...
+```
+
+После создания и настройки файла, выполняем команду для запуска объекта Secret в кластере:
+
+```shell
+kubectl apply -f secret.yml
+kubectl get secret # проверить что Secret создался
+```
+> Сам файл `secret.yml` коммитить нельзя т.к. он содержит чувствительные данные, его название занесено в `.gitignore`
+
+## Запуск
+
+Для запуска проекта введите следующее:
+
+```shell
+kubectl apply -f kubernetes/ # запустить Deployment и Service
+kubectl rollout status deployment/django-deploy # проверить статус запуска
+minikube service django --url # получить адрес сайта, на котором запущен проект
+
+```
+
+## Цель проекта
+
+Проект создан в учебных целях
