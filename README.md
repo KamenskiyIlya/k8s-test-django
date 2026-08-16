@@ -78,7 +78,7 @@ $ docker compose build web
 
 ## Развёртывание в Kubernetes
 
-Манифесты, с помощью которых будем запускать проект, лежат в каталоге `kubernetes/` (Deployment + Service + Ingress). Секретные настройки (`SECRET_KEY`, `DATABASE_URL`) не лежат в манифестах - они вынесены в отдельный объект Kubernetes `Secret`, который хранится только в кластере и не попадает в git вместе с кодом. Это защищает чувствительные данные от случайной утечки через репозиторий.
+Манифесты, с помощью которых будем запускать проект, лежат в каталоге `kubernetes/` (Deployment + Service + Ingress + CronJob). Секретные настройки (`SECRET_KEY`, `DATABASE_URL`) не лежат в манифестах - они вынесены в отдельный объект Kubernetes `Secret`, который хранится только в кластере и не попадает в git вместе с кодом. Это защищает чувствительные данные от случайной утечки через репозиторий.
 
 Для установки кластера и работы с манифестами понадобятся:
 - **Docker** и **Docker Compose** - для локального запуска базы данных PostgreSQL и сборки образа Django
@@ -146,7 +146,7 @@ kubectl get secret # проверить что Secret создался
 Для запуска проекта введите следующее:
 
 ```shell
-kubectl apply -f kubernetes/ # запустить Deployment и Service
+kubectl apply -f kubernetes/ # запустить Deployment, Service, Ingress и CronJob
 kubectl rollout status deployment/django-deploy # проверить статус запуска
 kubectl get svc django # проверяем информацию по запущенному сервису
 # не должно быть публичного порта и TYPE=ClusterIP
@@ -170,6 +170,26 @@ curl -I http://star-burger.test # а данная команда должна в
 
 После выполнения всех вышеуказанных пунктов сайт будет доступен на стандартном порту 80 по адресу http://star-burger.test
 
+### Регулярная очистка устаревших сессий (CronJob)
+
+Информацию о посетителях сайта Django хранит в базе данных - в модели `Session` стандартного приложения `django.contrib.sessions`. Сессия создаётся для каждого посетителя и со временем накапливается в БД. Для их удаления есть стандартная
+команда Django `python manage.py clearsessions`, которая стирает только **просроченные** сессии. Чтобы не запускать очистку вручную, в кластере настроен **CronJob** (`kubernetes/django-clearsessions-cronjob.yml`). Kubernetes сам запускает задачу
+по расписанию - первого числа каждого месяца в 15:00 (`schedule: "0 15 1 * *"`, часовая зона `Europe/Moscow`). Каждый запуск создаёт разовый под, который выполняет `clearsessions` и завершается со статусом `Completed`.
+
+CronJob применяется вместе с остальными манифестами:
+
+```shell
+kubectl apply -f kubernetes/
+kubectl get cronjob django-clearsessions # эта команда выводит информацию о задачах с их расписанием
+```
+Если Вы хотите запустить очистку немедленно, выполните следующие команды:
+
+```shell
+kubectl create job django-clearsessions-once --from=cronjob/django-clearsessions
+kubectl get jobs django-clearsessions-once   # проверка - COMPLETIONS должно стать 1/1
+kubectl get pods -l job-name=django-clearsessions-once # ещё проверка - pod должен быть со статусом Completed
+```
+
 ## Цель проекта
 
-Проект создан в учебных целях
+Проект создан в учебных целях.

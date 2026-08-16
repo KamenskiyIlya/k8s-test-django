@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: django-clearsessions
+  labels:
+    app.kubernetes.io/name: django-app
+    app.kubernetes.io/instance: django-py
+    app.kubernetes.io/component: cron
+    app.kubernetes.io/part-of: k8s-test-django
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  schedule: "0 15 1 * *"
+  timeZone: "Europe/Moscow"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: clearsessions
+              image: django_app
+              imagePullPolicy: IfNotPresent
+              envFrom:
+                - secretRef:
+                    name: django-secret
+              command: ["python", "manage.py", "clearsessions"]
