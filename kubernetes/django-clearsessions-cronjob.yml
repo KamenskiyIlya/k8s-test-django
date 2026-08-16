@@ -11,8 +11,10 @@ metadata:
 spec:
   schedule: "0 15 1 * *"
   timeZone: "Europe/Moscow"
+  startingDeadlineSeconds: 300
   jobTemplate:
     spec:
+      ttlSecondsAfterFinished: 600
       template:
         spec:
           restartPolicy: Never
