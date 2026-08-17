@@ -63,7 +63,6 @@ $ docker compose build web
 
 Аналогичным образом можно удалять библиотеки из зависимостей.
 
-<a name="env-variables"></a>
 ## Переменные окружения
 
 Образ с Django считывает настройки из переменных окружения:
@@ -80,22 +79,25 @@ $ docker compose build web
 
 Манифесты, с помощью которых будем запускать проект, лежат в каталоге `kubernetes/` (Deployment + Service + Ingress + CronJob). Секретные настройки (`SECRET_KEY`, `DATABASE_URL`) не лежат в манифестах - они вынесены в отдельный объект Kubernetes `Secret`, который хранится только в кластере и не попадает в git вместе с кодом. Это защищает чувствительные данные от случайной утечки через репозиторий.
 
+PostgreSQL тоже работает в кластере - он разворачивается через Helm Bitnami (раздел ниже) и доступен Django по DNS имени `django-postgresql.default.svc.cluster.local`.
+
 Для установки кластера и работы с манифестами понадобятся:
-- **Docker** и **Docker Compose** - для локального запуска базы данных PostgreSQL и сборки образа Django
+- **Docker** — для сборки образа Django
+- **Helm** — менеджер пакетов для Kubernetes, нужен для развёртывания PostgreSQL в кластере ([установка](https://helm.sh/docs/intro/install/))
 - **kubectl** — клиент для управления кластером
 - **minikube** — локальный кластер Kubernetes (в примерах ниже драйвер `kvm2`, для своего окружения подберите свой: `minikube start --driver=<ваш_драйвер>` и т.д.).
 
-### Запустить БД PostgreSQL в Docker
+### Развернуть PostgreSQL в кластере
 
-Deployment обращается к базе PostgreSQL. Её необходимо поднять из корня проекта:
+PostgreSQL можно развернуть в кластере с помощью Helm Bitnami. Нижеуказанная команда создаст пользователя, БД и выдаст права на них.
 
 ```shell
-docker compose up -d db
+helm install django-postgresql oci://registry-1.docker.io/bitnamicharts/postgresql --set auth.username=<имя_пользователя> --set auth.password=<пароль_пользователя> --set auth.database=<имя_базы_данных> --set auth.postgresPassword=<пароль_суперпользователя>
 ```
-После перезагрузки локальной машины или сервера, контейнер может остановиться, чтобы его включить используйте следующую команду:
+После развёртывания проверьте подключение к БД: создайте временный под с клиентом psql, который подключится к работающей БД и откроет интерактивную консоль. После выхода `\q` под удалится автоматически.
 
 ```shell
-docker start k8s-test-django-db-1
+kubectl run django-postgresql-client --rm -it --restart="Never" --image registry-1.docker.io/bitnami/postgresql:latest --image-pull-policy=IfNotPresent --env="PGPASSWORD=<пароль_пользователя>" --command -- psql --host django-postgresql -U <имя_пользователя> -d <имя_базы_данных>
 ```
 
 ### Собрать и загрузить образ в кластер
@@ -129,7 +131,7 @@ metadata:
 type: Opaque
 stringData:
   SECRET_KEY: <секретный_ключ>
-  DATABASE_URL: postgres://test_k8s:<пароль>@host.minikube.internal:5432/test_k8s
+  DATABASE_URL: postgres://<имя_пользователя>:<пароль>@django-postgresql.default.svc.cluster.local:5432/<имя_базы_данных>
   DEBUG: "False"
   ALLOWED_HOSTS: 127.0.0.1,localhost,<ваш_домен>,...
 ```
@@ -152,6 +154,16 @@ kubectl get svc django # проверяем информацию по запущ
 # не должно быть публичного порта и TYPE=ClusterIP
 kubectl get ingress django # проверяем информацию по объекту Ingress
 # в ADRESS должен быть ip нужной ноды
+```
+
+### Применить миграции БД и создать суперпользователя
+
+После того как у нас будет запущена БД Вам необходимо применить миграции и создать суперпользователя, для этого в репозитории создан Job - `kubernetes/django-migrate-job.yml`. Выполните следующие команды:
+
+```shell
+kubectl apply -f kubernetes/django-migrate-job.yml # запускаем Job для применения миграций
+kubectl logs job/django-migrate # проверяем логи, должны быть сообщения об успешном применении миграций
+kubectl exec -it deploy/django-deploy -- python manage.py createsuperuser # создаем суперпользователя
 ```
 
 ### Добавить домен в /etc/hosts
