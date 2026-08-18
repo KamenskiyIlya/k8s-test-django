@@ -3,11 +3,11 @@ kind: CronJob
 metadata:
   name: django-clearsessions
   labels:
-    app.kubernetes.io/name: django-app
-    app.kubernetes.io/instance: django-py
-    app.kubernetes.io/component: cron
-    app.kubernetes.io/part-of: k8s-test-django
-    app.kubernetes.io/managed-by: kubectl
+    name: django-app
+    instance: django-py
+    component: cron
+    part-of: k8s-test-django
+    managed-by: kubectl
 spec:
   schedule: "0 15 1 * *"
   timeZone: "Europe/Moscow"

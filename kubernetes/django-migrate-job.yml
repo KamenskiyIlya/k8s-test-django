@@ -3,11 +3,11 @@ kind: Job
 metadata:
   name: django-migrate
   labels:
-    app.kubernetes.io/name: django-app
-    app.kubernetes.io/instance: django-py
-    app.kubernetes.io/component: migrate
-    app.kubernetes.io/part-of: k8s-test-django
-    app.kubernetes.io/managed-by: kubectl
+    name: django-app
+    instance: django-py
+    component: migrate
+    part-of: k8s-test-django
+    managed-by: kubectl
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 600
